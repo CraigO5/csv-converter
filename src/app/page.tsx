@@ -39,7 +39,7 @@ export default function Home() {
     formData.append("file", selectedFile);
 
     try {
-      const response = await fetch("http://localhost:5001/api/transform", {
+      const response = await fetch("/api/transform", {
         method: "POST",
         body: formData,
       });
@@ -67,7 +67,8 @@ export default function Home() {
 
       // reset state so user can re-upload cleaned file
       setSelectedFile(null);
-      document.querySelector('input[type="file"]').value = "";
+      (document.querySelector('input[type="file"]') as HTMLInputElement).value =
+        "";
     } catch (error) {
       console.error("Error", error);
       alert("File upload failed, please try again.");
@@ -87,7 +88,7 @@ export default function Home() {
     const formData = new FormData();
     formData.append("file", selectedFile);
 
-    const res = await fetch("http://localhost:5001/api/normalize", {
+    const res = await fetch("/api/normalize", {
       method: "POST",
       body: formData,
       mode: "cors",
@@ -111,8 +112,8 @@ export default function Home() {
     alert("File normalized successfully! Downloading.");
     // reset state so user can re-upload cleaned file
     setSelectedFile(null);
-    document.querySelector('input[type="file"]').value = "";
-
+    (document.querySelector('input[type="file"]') as HTMLInputElement).value =
+      "";
     setIsNormalizing(false);
   };
 

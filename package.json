@@ -8,8 +8,13 @@
     "start": "next start"
   },
   "dependencies": {
+    "archiver": "^7.0.1",
+    "express": "^5.1.0",
+    "formidable": "^3.5.4",
     "lucide-react": "^0.544.0",
+    "multer": "^2.0.2",
     "next": "15.5.4",
+    "papaparse": "^5.5.3",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-dropzone": "^14.3.8"
