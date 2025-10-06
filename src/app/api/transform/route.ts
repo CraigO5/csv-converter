@@ -32,60 +32,61 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import formidable from "formidable";
 import Papa from "papaparse";
 
-// Disable Next.js default body parsing so we can handle multipart/form-data
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+interface CsvRow {
+  LastName?: string;
+  FirstName?: string;
+  Campus?: string;
+  Batch?: string;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const form = new formidable.IncomingForm({
-      multiples: false,
-      keepExtensions: true,
-    });
+    const formData = await req.formData();
+    const file = formData.get("file") as File;
 
-    // parse the incoming form
-    const data: any = await new Promise((resolve, reject) => {
-      form.parse(req, (err, fields, files) => {
-        if (err) reject(err);
-        else resolve({ fields, files });
-      });
-    });
+    if (!file) {
+      return NextResponse.json({ error: "File not found." }, { status: 404 });
+    }
 
-    const file = data.files?.file;
-    if (!file)
-      return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
-
-    // read file as string
-    const csvString = await file.toString("utf8"); // or fs.readFileSync(file.filepath, "utf8") for Node
-    const parsedData = Papa.parse(csvString, { header: true });
+    const arrayBuffer = await file.arrayBuffer();
+    const csvString = Buffer.from(arrayBuffer).toString("utf8");
+    const parsedData = Papa.parse<CsvRow>(csvString, { header: true });
 
     // validate and clean data
     const currentYear = new Date().getFullYear();
 
-    const validRows = parsedData.data.filter((row: any) => {
+    const validRows = parsedData.data.filter((row) => {
       const hasRequiredFields =
         row.LastName && row.FirstName && row.Campus && row.Batch;
+      const batchYear = Number(row.Batch);
       const validBatch =
-        !isNaN(row.Batch) && row.Batch >= 1964 && row.Batch <= currentYear;
+        !isNaN(batchYear) && batchYear >= 1964 && batchYear <= currentYear;
       return hasRequiredFields && validBatch;
     });
 
-    // transform rows
-    const transformedData = validRows.map((row: any) => ({
+    // normalize campus names
+    const campusMap = {
+      "Pisay Main": "MAIN",
+      "Main Campus": "MAIN",
+      Diliman: "MAIN",
+      CVC: "CAGAYAN VALLEY",
+      WVC: "WESTERN VISAYAS",
+    };
+
+    // sample transformation logic
+    const transformedData = validRows.map((row) => ({
       last_name: row.LastName?.trim(),
       first_name: row.FirstName?.trim(),
       campus: row.Campus?.trim(),
       batch_year: row.Batch?.trim(),
     }));
 
+    // convert back to CSV
     const outputCsv = Papa.unparse(transformedData);
 
+    // send file response
     return new NextResponse(outputCsv, {
       status: 200,
       headers: {
@@ -93,10 +94,10 @@ export async function POST(req: NextRequest) {
         "Content-Disposition": 'attachment; filename="pisay_transformed.csv"',
       },
     });
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error("Error transforming CSV: ", error);
     return NextResponse.json(
-      { error: "Transformation failed" },
+      { error: "Failed to transform file." },
       { status: 500 }
     );
   }

@@ -36,102 +36,117 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import formidable from "formidable";
 import Papa from "papaparse";
-import archiver from "archiver";
-import { PassThrough } from "stream";
+import { zipSync, strToU8 } from "fflate";
+type CsvRow = Record<string, string | null | undefined>;
 
-// Disable Next.js default body parsing so we can handle multipart/form-data
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+interface Alumni {
+  alumni_id: number;
+  last_name: string;
+  first_name: string;
+  batch_year: string;
+}
+
+interface Campus {
+  campus_id: number;
+  campus_name: string;
+}
+
+interface AlumniCampus {
+  alumni_id: number;
+  campus_id: number;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const form = new formidable.IncomingForm({
-      multiples: false,
-      keepExtensions: true,
-    });
+    const formData = await req.formData();
+    const file = formData.get("file") as File;
 
-    const data: any = await new Promise((resolve, reject) => {
-      form.parse(req, (err, fields, files) => {
-        if (err) reject(err);
-        else resolve({ fields, files });
-      });
-    });
+    if (!file) {
+      return NextResponse.json({ error: "File not found." }, { status: 404 });
+    }
 
-    const file = data.files?.file;
-    if (!file)
-      return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
+    const arrayBuffer = await file.arrayBuffer();
+    const csvString = Buffer.from(arrayBuffer).toString("utf8");
+    const parsedData = Papa.parse<CsvRow>(csvString, { header: true });
+    const data = parsedData.data;
 
-    const csvString = await file.toString("utf8"); // or fs.readFileSync(file.filepath, "utf8")
-    const parsedData = Papa.parse(csvString, { header: true });
-    const rows = parsedData.data;
+    // prepare arrays for normalized datasets
+    const alumni: Alumni[] = [];
+    const campuses: Campus[] = [];
+    const alumniCampus: AlumniCampus[] = [];
+    const campusSet = new Map();
 
-    // prepare normalized datasets
-    const alumni: any[] = [];
-    const campuses: any[] = [];
-    const alumniCampus: any[] = [];
-    const campusSet = new Map<string, number>();
-
-    const getValue = (row: any, ...keys: string[]) => {
+    const getValue = (row: CsvRow, ...keys: string[]): string => {
       for (const k of keys) {
-        if (row[k] !== undefined && row[k] !== null && row[k] !== "")
-          return row[k].trim();
+        const val = row[k];
+        if (val !== undefined && val !== null && val !== "") {
+          return val.trim();
+        }
       }
       return "";
     };
 
-    rows.forEach((row: any, index: number) => {
+    data.forEach((row, index) => {
       const lastName = getValue(row, "LastName", "last_name");
       const firstName = getValue(row, "FirstName", "first_name");
       const campusName = getValue(row, "Campus", "campus");
       const batchYear = getValue(row, "Batch", "batch_year");
 
+      // assign numeric IDs
       const alumniId = index + 1;
-      let campusId: number;
+      let campusId;
 
       if (!campusSet.has(campusName)) {
         campusId = campusSet.size + 1;
         campusSet.set(campusName, campusId);
-        campuses.push({ campus_id: campusId, campus_name: campusName });
+        campuses.push({
+          campus_id: campusId,
+          campus_name: campusName,
+        });
       } else {
-        campusId = campusSet.get(campusName)!;
+        campusId = campusSet.get(campusName);
       }
 
+      // alumni table
       alumni.push({
         alumni_id: alumniId,
         last_name: lastName,
         first_name: firstName,
         batch_year: batchYear,
       });
-      alumniCampus.push({ alumni_id: alumniId, campus_id: campusId });
+
+      // relationship table
+      alumniCampus.push({
+        alumni_id: alumniId,
+        campus_id: campusId,
+      });
     });
 
-    // Create ZIP archive in memory
-    const stream = new PassThrough();
-    const archive = archiver("zip");
-    archive.pipe(stream);
+    const files = {
+      "alumni.csv": Papa.unparse(alumni),
+      "campus.csv": Papa.unparse(campuses),
+      "alumni_campus.csv": Papa.unparse(alumniCampus),
+    };
 
-    archive.append(Papa.unparse(alumni), { name: "alumni.csv" });
-    archive.append(Papa.unparse(campuses), { name: "campus.csv" });
-    archive.append(Papa.unparse(alumniCampus), { name: "alumni_campus.csv" });
-
-    archive.finalize();
-
-    return new NextResponse(stream, {
-      status: 200,
+    // create ZIP archive
+    const zip = zipSync(
+      Object.fromEntries(
+        Object.entries(files).map(([name, content]) => [name, strToU8(content)])
+      )
+    );
+    // send ZIP file back to client
+    return new NextResponse(zip, {
       headers: {
         "Content-Type": "application/zip",
         "Content-Disposition": "attachment; filename=normalized_output.zip",
+        "Cache-Control": "no-store, no-cache, must-revalidate, private",
       },
     });
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error("Error normalizing CSV: ", error);
     return NextResponse.json(
-      { error: "Normalization failed" },
+      { error: "Failed to normalize file." },
       { status: 500 }
     );
   }
