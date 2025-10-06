@@ -135,12 +135,11 @@ export async function POST(req: NextRequest) {
         Object.entries(files).map(([name, content]) => [name, strToU8(content)])
       )
     );
-    // send ZIP file back to client
-    return new NextResponse(zip, {
+
+    return new NextResponse(zip.buffer as ArrayBuffer, {
       headers: {
         "Content-Type": "application/zip",
         "Content-Disposition": "attachment; filename=normalized_output.zip",
-        "Cache-Control": "no-store, no-cache, must-revalidate, private",
       },
     });
   } catch (error) {
